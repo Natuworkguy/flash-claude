@@ -1,0 +1,13 @@
+{
+  "name": "claude",
+  "description": "Anthropic's Claude models, as @claude/<model>",
+  "version": "0.1.0",
+  "providers": [
+    {
+      "name": "claude",
+      "description": "Claude models through the Anthropic API",
+      "run": ["python", "./provider.py"],
+      "timeout": 600
+    }
+  ]
+}

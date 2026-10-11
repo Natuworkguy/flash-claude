@@ -1,4 +1,6 @@
 .deps/
 .deps-incoming/
+.pillow/
+.pillow-incoming/
 .replies/
 __pycache__/

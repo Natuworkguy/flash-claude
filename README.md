@@ -76,6 +76,12 @@ Set with `/set NAME VALUE`, saved in `~/.flash.env`.
 - **Refusal fallback** is on for the models that support it: if a
   safety check declines a request, the API runs it again on a model
   that can take it, in the same call.
+- **Large pictures are shrunk to fit.** The API takes no side over
+  8000 pixels (2000 once a request has more than 20 pictures) and no
+  more than 5 MB, so a bigger one, such as a full-page screenshot, is
+  scaled down first. That installs Pillow into the extension's folder
+  the first time it is needed; if it cannot, the picture is left out
+  with a note instead of failing the request.
 - **A cut-off tool call is never run**: if a reply runs out of room in
   the middle of a tool call, Flash is told so instead.
 

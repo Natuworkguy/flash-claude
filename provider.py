@@ -24,10 +24,12 @@ from __future__ import annotations
 import base64
 import hashlib
 import importlib
+import io
 import json
 import os
 import re
 import shutil
+import struct
 import subprocess  # nosec B404 -- installing the SDK, once
 import sys
 from pathlib import Path
@@ -35,8 +37,17 @@ from typing import Any
 
 HERE = Path(os.environ.get("FLASH_EXTENSION_DIR") or Path(__file__).parent)
 DEPS = HERE / ".deps"
+PILLOW = HERE / ".pillow"
 CACHE = HERE / ".replies"
 KEEP_REPLIES = 2000
+
+# The largest picture the API takes: no side over 8000 pixels, or over
+# 2000 once a request has more than 20 pictures, and 5 MB of base64.
+# A larger one, such as a full-page screenshot, is shrunk to fit.
+MAX_SIDE = 8000
+MAX_SIDE_MANY = 2000
+MANY_IMAGES = 20
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 # Streamed, so a long answer never runs into an HTTP timeout.
 MAX_TOKENS = 64000
@@ -104,26 +115,26 @@ def adaptive(model: str) -> bool:
 # The SDK, in this extension's folder -----------------------------------------
 
 
-def sdk():
-    """The anthropic package, installed beside this file on first use."""
+def _installed(module: str, package: str, folder: Path):
+    """MODULE, with PACKAGE installed into FOLDER beside this file on
+    first use."""
 
-    sys.path.insert(0, str(DEPS))
+    if str(folder) not in sys.path:
+        sys.path.insert(0, str(folder))
     try:
-        import anthropic
-
-        return anthropic
+        return importlib.import_module(module)
     except ImportError:
         pass
 
-    incoming = HERE / ".deps-incoming"
+    incoming = folder.with_name(folder.name + "-incoming")
     shutil.rmtree(incoming, ignore_errors=True)
     tries = [
         [sys.executable, "-m", "pip", "install", "--quiet",
          "--disable-pip-version-check", "--target", str(incoming),
-         "anthropic"],
+         package],
         # A uv environment has no pip of its own.
         ["uv", "pip", "install", "--quiet", "--target", str(incoming),
-         "--python", sys.executable, "anthropic"],
+         "--python", sys.executable, package],
     ]
     why = ""
     for argv in tries:
@@ -136,23 +147,38 @@ def sdk():
             why = str(exc)
             continue
         if done.returncode == 0:
-            shutil.rmtree(DEPS, ignore_errors=True)
-            incoming.rename(DEPS)
+            shutil.rmtree(folder, ignore_errors=True)
+            incoming.rename(folder)
             # Python looked for the folder before it was there, and
             # remembers that it was not.
-            sys.path_importer_cache.pop(str(DEPS), None)
+            sys.path_importer_cache.pop(str(folder), None)
             importlib.invalidate_caches()
-            import anthropic
-
-            return anthropic
+            return importlib.import_module(module)
         why = (done.stderr or done.stdout).strip().splitlines()[-1:] or [""]
         why = why[0]
     raise RuntimeError(
-        "could not install the anthropic package for the Claude provider"
+        f"could not install the {package} package for the Claude provider"
         + (f" ({why})" if why else "")
         + f". Install it into the Python Flash runs on: {sys.executable} "
-        "-m pip install anthropic"
+        f"-m pip install {package}"
     )
+
+
+def sdk():
+    """The anthropic package, installed beside this file on first use."""
+
+    return _installed("anthropic", "anthropic", DEPS)
+
+
+def pillow():
+    """Pillow's Image, installed beside this file the first time a
+    picture is too large to send as it is."""
+
+    image = _installed("PIL.Image", "pillow", PILLOW)
+    # A full-page screenshot can be taller than Pillow trusts by default;
+    # it is the user's own picture, not a decompression bomb.
+    image.MAX_IMAGE_PIXELS = None
+    return image
 
 
 # Replies kept for replay -----------------------------------------------------
@@ -226,13 +252,104 @@ def _media_type(data: str) -> str:
     return "image/jpeg"
 
 
-def _images(message: dict) -> list:
-    return [
-        {"type": "image", "source": {
+def _size(raw: bytes) -> tuple[int, int] | None:
+    """A picture's width and height, read from its header; None for a
+    kind this does not know."""
+
+    if raw.startswith(b"\x89PNG") and len(raw) >= 24:
+        return struct.unpack(">II", raw[16:24])
+    if raw.startswith(b"GIF8") and len(raw) >= 10:
+        return struct.unpack("<HH", raw[6:10])
+    if raw[:4] == b"RIFF" and raw[8:12] == b"WEBP" and len(raw) >= 30:
+        chunk = raw[12:16]
+        if chunk == b"VP8X":
+            return (1 + int.from_bytes(raw[24:27], "little"),
+                    1 + int.from_bytes(raw[27:30], "little"))
+        if chunk == b"VP8L":
+            bits = int.from_bytes(raw[21:25], "little")
+            return (1 + (bits & 0x3FFF), 1 + ((bits >> 14) & 0x3FFF))
+        if chunk == b"VP8 ":
+            width, height = struct.unpack("<HH", raw[26:30])
+            return (width & 0x3FFF, height & 0x3FFF)
+        return None
+    if raw.startswith(b"\xff\xd8"):
+        # A JPEG's size is in its frame header, after any other segments.
+        at = 2
+        while at + 9 <= len(raw) and raw[at] == 0xFF:
+            marker = raw[at + 1]
+            if marker == 0xFF or marker == 0x01 or 0xD0 <= marker <= 0xD9:
+                at += 1 if marker == 0xFF else 2
+                continue
+            if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+                height, width = struct.unpack(">HH", raw[at + 5:at + 9])
+                return (width, height)
+            at += 2 + int.from_bytes(raw[at + 2:at + 4], "big")
+        return None
+    return None
+
+
+def fit(data: str, side: int) -> str:
+    """DATA, a picture in base64, as the API takes it: no side longer
+    than SIDE, and no more than MAX_IMAGE_BYTES. One that fits already
+    is left as it is. ValueError when it cannot be made to fit."""
+
+    try:
+        raw = base64.b64decode(data)
+    except ValueError:
+        return data  # the API says what is wrong with it
+    size = _size(raw)
+    if (size is None or max(size) <= side) and len(data) <= MAX_IMAGE_BYTES:
+        return data
+
+    try:
+        image = pillow()
+    except RuntimeError as exc:
+        raise ValueError(str(exc)) from exc
+    try:
+        with image.open(io.BytesIO(raw)) as opened:
+            kind = opened.format
+            picture = opened.convert("RGBA") if opened.mode not in (
+                "RGB", "RGBA", "L", "LA",
+            ) else opened.copy()
+    except Exception as exc:  # noqa: BLE001 -- Pillow could not read it
+        raise ValueError(f"it could not be read ({exc})") from exc
+
+    # A screenshot stays a lossless PNG unless that is too many bytes.
+    form = kind if kind in ("PNG", "JPEG", "WEBP") else "PNG"
+    picture.thumbnail((side, side), image.LANCZOS)
+    while True:
+        out = io.BytesIO()
+        if form == "JPEG":
+            picture.convert("RGB").save(out, "JPEG", quality=85)
+        else:
+            picture.save(out, form)
+        shrunk = base64.b64encode(out.getvalue()).decode("ascii")
+        if len(shrunk) <= MAX_IMAGE_BYTES:
+            return shrunk
+        if form != "JPEG":
+            form = "JPEG"
+            continue
+        longest = max(picture.size)
+        if longest <= 64:
+            raise ValueError("it is too many bytes even when small")
+        picture.thumbnail((longest * 3 // 4,) * 2, image.LANCZOS)
+
+
+def _images(message: dict, side: int = MAX_SIDE) -> list:
+    blocks = []
+    for data in message.get("images") or []:
+        try:
+            data = fit(data, side)
+        except ValueError as exc:
+            blocks.append({"type": "text", "text": (
+                "(A picture was left out: it is larger than Claude takes, "
+                f"and could not be shrunk to fit: {exc})"
+            )})
+            continue
+        blocks.append({"type": "image", "source": {
             "type": "base64", "media_type": _media_type(data), "data": data,
-        }}
-        for data in message.get("images") or []
-    ]
+        }})
+    return blocks
 
 
 def tools_of(tools: list | None) -> list:
@@ -261,6 +378,11 @@ def convert(messages: list, flat: bool = False) -> tuple[str, list]:
 
     system: list[str] = []
     out: list[dict] = []
+    pictures = sum(
+        len(m.get("images") or []) for m in messages
+        if m.get("role") not in ("system", "tool", "assistant")
+    )
+    side = MAX_SIDE_MANY if pictures > MANY_IMAGES else MAX_SIDE
     waiting: list[tuple[str, str]] = []  # tool_use ids not yet answered
 
     def user(blocks: list) -> None:
@@ -343,7 +465,7 @@ def convert(messages: list, flat: bool = False) -> tuple[str, list]:
 
         # A user's message, with any pictures before its words.
         settle()
-        blocks = _images(message)
+        blocks = _images(message, side)
         if text.strip():
             blocks.append({"type": "text", "text": text})
         user(blocks)

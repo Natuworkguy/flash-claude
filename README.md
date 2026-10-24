@@ -27,13 +27,19 @@ git clone https://github.com/Natuworkguy/flash-claude
 flash install path@flash-claude
 ```
 
-Then give it an API key from the Claude Console:
+Then give it an API key from the Claude Console. The easiest place is
+its own settings: on Flash's Extensions page, **Settings** on Claude,
+then **API key**. It shows as bullets and is never shown again, only
+that it is saved. In the terminal:
 
 ```text
-/set ANTHROPIC_API_KEY sk-ant-...
+/extension set claude api_key sk-ant-...
 ```
 
-If you signed in with `ant auth login`, there is nothing to set.
+That key goes ahead of one in the environment, so it works whatever
+`ANTHROPIC_API_KEY` is. Leave it empty to use `ANTHROPIC_API_KEY`
+(`/set ANTHROPIC_API_KEY sk-ant-...`), or nothing at all if you signed in
+with `ant auth login`.
 
 The first request installs Anthropic's Python SDK into the extension's
 own folder, which takes a few seconds once. Nothing is added to the
@@ -58,11 +64,12 @@ with a dot too, as the models are named: `@claude/opus-5.5` is
 
 ## Settings
 
-Set with `/set NAME VALUE`, saved in `~/.flash.env`.
+The API key is set on the Extensions page, or with `/extension set claude api_key <key>`. The rest are set with `/set NAME VALUE`, saved in `~/.flash.env`.
 
 | Setting | Meaning |
 | --- | --- |
-| `ANTHROPIC_API_KEY` | Your key. Not needed after `ant auth login`. |
+| API key (the extension's own setting) | Your key, kept by Flash and shown only as bullets. Goes ahead of `ANTHROPIC_API_KEY`. |
+| `ANTHROPIC_API_KEY` | Your key, if the setting is empty. Not needed after `ant auth login`. |
 | `CLAUDE_EFFORT` | How hard Claude thinks: `low`, `medium`, `high` (the default), `xhigh` or `max`. Higher is slower and costs more; `xhigh` suits long coding work. A reply Flash asks to think harder (Think harder, or Flash turning thinking on by itself) runs at `max`. |
 
 ## How it talks to Claude

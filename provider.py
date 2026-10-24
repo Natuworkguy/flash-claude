@@ -14,8 +14,13 @@ It talks to the API with the official SDK, installed into this
 extension's own folder the first time it is needed, so nothing is added
 to the Python Flash runs on.
 
+The API key is this extension's own setting (API key, on Flash's
+Extensions page, or /extension set claude api_key <key>), handed to it
+as FLASH_SETTING_API_KEY. Left empty, the environment's is used.
+
 Settings, from the environment (/set NAME VALUE in Flash):
-  ANTHROPIC_API_KEY  the key, unless `ant auth login` signed you in
+  ANTHROPIC_API_KEY  the key, unless the setting has one, or `ant auth
+                     login` signed you in
   CLAUDE_EFFORT      low, medium, high (the default), xhigh or max; a
                      reply Flash asks to think harder is always max
 """
@@ -72,12 +77,26 @@ FALLBACK_MODELS = {
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 NO_KEY = (
-    "Set an API key with /set ANTHROPIC_API_KEY sk-ant-..., or sign in "
-    "with `ant auth login`."
+    "Give it an API key: in its settings on Flash's Extensions page, with "
+    "/extension set claude api_key sk-ant-..., or /set ANTHROPIC_API_KEY "
+    "sk-ant-.... Or sign in with `ant auth login`."
 )
 
 # A reply Flash relays as a note to the model rather than its own turn.
 NOTE = "[A note from Flash]"
+
+
+def api_key() -> str | None:
+    """The key from this extension's settings, which goes ahead of
+    ANTHROPIC_API_KEY; None to leave the SDK to find one."""
+
+    return os.environ.get("FLASH_SETTING_API_KEY", "").strip() or None
+
+
+def client_of(anthropic, **options):
+    key = api_key()
+    return anthropic.Anthropic(**({"api_key": key} if key else {}),
+                               **options)
 
 
 def say(answer: dict) -> None:
@@ -553,7 +572,7 @@ def models() -> None:
     listed = []
     if (DEPS / "anthropic").is_dir():
         try:
-            client = sdk().Anthropic(max_retries=0, timeout=10.0)
+            client = client_of(sdk(), max_retries=0, timeout=10.0)
             for model in client.models.list():
                 if not model.id.startswith("claude-"):
                     continue
@@ -637,7 +656,7 @@ def chat(ask: dict) -> None:
         say({"error": str(exc)})
         return
 
-    client = anthropic.Anthropic()
+    client = client_of(anthropic)
     stream_it = bool(ask.get("stream"))
     streamed: list[str] = []
 

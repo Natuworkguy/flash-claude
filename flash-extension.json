@@ -1,13 +1,24 @@
 {
   "name": "claude",
   "description": "Anthropic's Claude models, as @claude/<model>",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "providers": [
     {
       "name": "claude",
       "description": "Claude models through the Anthropic API",
-      "run": ["python", "./provider.py"],
+      "run": [
+        "python",
+        "./provider.py"
+      ],
       "timeout": 600
+    }
+  ],
+  "settings": [
+    {
+      "id": "api_key",
+      "label": "API key",
+      "secret": true,
+      "help": "Your key from the Claude Console. Used ahead of ANTHROPIC_API_KEY; left empty, that or ant auth login is used."
     }
   ]
 }

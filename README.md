@@ -24,7 +24,7 @@ from the folder:
 
 ```bash
 git clone https://github.com/Natuworkguy/flash-claude
-flash --extension-install path@flash-claude
+flash install path@flash-claude
 ```
 
 Then give it an API key from the Claude Console:
@@ -52,7 +52,9 @@ or offline, it lists the current models:
 | `@claude/haiku-5-5` | Claude Haiku 5.5, the fastest |
 
 Every name is the API's model id without `claude-`, so any model your
-key can use works, such as `@claude/opus-4-8`.
+key can use works, such as `@claude/opus-4-8`. A version can be written
+with a dot too, as the models are named: `@claude/opus-5.5` is
+`@claude/opus-5-5`.
 
 ## Settings
 
@@ -61,7 +63,7 @@ Set with `/set NAME VALUE`, saved in `~/.flash.env`.
 | Setting | Meaning |
 | --- | --- |
 | `ANTHROPIC_API_KEY` | Your key. Not needed after `ant auth login`. |
-| `CLAUDE_EFFORT` | How hard Claude thinks: `low`, `medium`, `high` (the default), `xhigh` or `max`. Higher is slower and costs more; `xhigh` suits long coding work. |
+| `CLAUDE_EFFORT` | How hard Claude thinks: `low`, `medium`, `high` (the default), `xhigh` or `max`. Higher is slower and costs more; `xhigh` suits long coding work. A reply Flash asks to think harder (Think harder, or Flash turning thinking on by itself) runs at `max`. |
 
 ## How it talks to Claude
 

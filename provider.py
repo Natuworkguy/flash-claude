@@ -16,7 +16,8 @@ to the Python Flash runs on.
 
 Settings, from the environment (/set NAME VALUE in Flash):
   ANTHROPIC_API_KEY  the key, unless `ant auth login` signed you in
-  CLAUDE_EFFORT      low, medium, high (the default), xhigh or max
+  CLAUDE_EFFORT      low, medium, high (the default), xhigh or max; a
+                     reply Flash asks to think harder is always max
 """
 
 from __future__ import annotations
@@ -87,8 +88,10 @@ def say(answer: dict) -> None:
 
 
 def api_name(model: str) -> str:
-    """Flash's opus-5-5 is the API's claude-opus-5-5."""
+    """Flash's opus-5-5 is the API's claude-opus-5-5, and so is opus-5.5:
+    a version may be written with a dot, as the models' names are."""
 
+    model = re.sub(r"(?<=\d)\.(?=\d)", "-", model.strip())
     return model if model.startswith("claude-") else f"claude-{model}"
 
 
@@ -591,9 +594,12 @@ def request_of(ask: dict, flat: bool = False) -> dict:
         # model's thinking.
         params["thinking"] = {"type": "adaptive", "display": "summarized"}
         effort = os.environ.get("CLAUDE_EFFORT", "").strip().lower()
-        params["output_config"] = {
-            "effort": effort if effort in EFFORTS else "high",
-        }
+        effort = effort if effort in EFFORTS else "high"
+        if ask.get("think"):
+            # Flash asked it to think harder (Think harder, or Flash
+            # deciding a message needs it): as hard as it goes.
+            effort = "max"
+        params["output_config"] = {"effort": effort}
     if model in FALLBACK_MODELS:
         params["betas"] = [FALLBACK_BETA]
         params["fallbacks"] = "default"

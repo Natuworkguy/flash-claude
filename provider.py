@@ -150,15 +150,24 @@ def _installed(module: str, package: str, folder: Path):
     except ImportError:
         pass
 
+    _install(package, folder)
+    return importlib.import_module(module)
+
+
+def _install(package: str, folder: Path, upgrade: bool = False) -> None:
+    """PACKAGE installed into FOLDER (its newest release with UPGRADE), in
+    place of what was there. RuntimeError, saying why, if it can't be."""
+
     incoming = folder.with_name(folder.name + "-incoming")
     shutil.rmtree(incoming, ignore_errors=True)
+    newest = ["--upgrade"] if upgrade else []
     tries = [
         [sys.executable, "-m", "pip", "install", "--quiet",
-         "--disable-pip-version-check", "--target", str(incoming),
+         "--disable-pip-version-check", *newest, "--target", str(incoming),
          package],
         # A uv environment has no pip of its own.
-        ["uv", "pip", "install", "--quiet", "--target", str(incoming),
-         "--python", sys.executable, package],
+        ["uv", "pip", "install", "--quiet", *newest, "--target",
+         str(incoming), "--python", sys.executable, package],
     ]
     why = ""
     for argv in tries:
@@ -177,7 +186,7 @@ def _installed(module: str, package: str, folder: Path):
             # remembers that it was not.
             sys.path_importer_cache.pop(str(folder), None)
             importlib.invalidate_caches()
-            return importlib.import_module(module)
+            return
         why = (done.stderr or done.stdout).strip().splitlines()[-1:] or [""]
         why = why[0]
     raise RuntimeError(
@@ -651,6 +660,39 @@ def _error(anthropic, exc) -> dict:
     return {"error": str(exc)}
 
 
+UPGRADED = "FLASH_CLAUDE_SDK_UPGRADED"
+
+
+def _too_old(exc: TypeError) -> bool:
+    """Whether EXC is the SDK not knowing a request option this sends
+    (cache_control, output_config, fallbacks...): an SDK installed here
+    before they were added."""
+
+    return "unexpected keyword argument" in str(exc)
+
+
+def _again_with_newer_sdk(ask: dict, why: TypeError) -> None:
+    """The SDK beside this file updated to its newest release, and ASK
+    run again by a fresh copy of this program (this one has the old SDK
+    loaded), its answer going straight to Flash. Once only."""
+
+    if os.environ.get(UPGRADED):
+        say({"error": f"The Anthropic SDK does not take this request even "
+                      f"after updating it ({why})."})
+        return
+    try:
+        _install("anthropic", DEPS, upgrade=True)
+    except RuntimeError as exc:
+        say({"error": f"The Anthropic SDK here is too old for this request "
+                      f"({why}), and updating it failed: {exc}"})
+        return
+    subprocess.run(  # nosec B603 -- this same program, once
+        [sys.executable, str(Path(__file__).resolve())],
+        input=json.dumps(ask), text=True, check=False,
+        env={**os.environ, UPGRADED: "1"},
+    )
+
+
 def chat(ask: dict) -> None:
     try:
         anthropic = sdk()
@@ -694,6 +736,11 @@ def chat(ask: dict) -> None:
         say(_error(anthropic, exc))
         return
     except TypeError as exc:
+        # An SDK installed here before an option this sends: updated, and
+        # the request run again.
+        if _too_old(exc) and not streamed:
+            _again_with_newer_sdk(ask, exc)
+            return
         # No key and no `ant auth login`: the SDK says so before asking.
         if "authentication" not in str(exc).lower():
             raise
@@ -718,12 +765,16 @@ def chat(ask: dict) -> None:
 
 def main() -> None:
     ask = json.load(sys.stdin)
-    if ask.get("action") == "models":
-        models()
-    elif ask.get("action") == "chat":
-        chat(ask)
-    else:
-        say({"error": f"unknown action {ask.get('action')!r}"})
+    try:
+        if ask.get("action") == "models":
+            models()
+        elif ask.get("action") == "chat":
+            chat(ask)
+        else:
+            say({"error": f"unknown action {ask.get('action')!r}"})
+    except Exception as exc:  # noqa: BLE001 -- said to Flash, not a traceback
+        say({"error": f"The Claude provider failed: {type(exc).__name__}: "
+                      f"{exc}"})
 
 
 if __name__ == "__main__":

@@ -62,7 +62,7 @@ EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
 # Shown when the API cannot be asked which models there are: the current
 # ones, each with a 1M-token window.
-KNOWN = ("opus-5-5", "fable-5-1", "sonnet-5-5", "haiku-5-5")
+KNOWN = ("opus-5.5", "fable-5.1", "sonnet-5.5", "haiku-5.5")
 KNOWN_CONTEXT = 1_000_000
 
 # What every current Claude model does, in Ollama's words.
@@ -115,7 +115,9 @@ def api_name(model: str) -> str:
 
 
 def flash_name(model: str) -> str:
-    return model[len("claude-"):] if model.startswith("claude-") else model
+    name = model[len("claude-"):] if model.startswith("claude-") else model
+    # opus-5-5 reads as opus-5.5; a trailing date (-20250101) is left alone.
+    return re.sub(r"(?<=\d)-(\d{1,2})$", r".\1", name)
 
 
 def _version(model: str) -> tuple[int, int]:

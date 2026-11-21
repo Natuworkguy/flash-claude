@@ -108,3 +108,24 @@ installed in the same environment, one more test installs the extension
 into a temporary Flash and lists its models.
 
 MIT licensed. See [LICENSE](LICENSE).
+
+## Your balance
+
+Turn on **Show my balance** in this extension's settings, and while a chat
+uses a `@claude/` model, what is left on your API account shows under the
+message box, on the web and in the terminal.
+
+The API has no way to read the prepaid credit left on an account, so it is
+worked out from what you spend. It needs an **Admin API key** (Claude Console,
+Settings, Admin keys), which only reads your organization's costs here:
+
+- Set **Balance** and **Balance as of** to the credit you had on a day, and
+  the line says roughly what is left now: `Claude ≈ $60.98 left · 4h ago`.
+- Leave Balance at 0, and it says what this month has cost so far:
+  `Claude $13.01 this month · 4h ago`.
+
+The figures come from the Usage and Cost Analytics API, which runs a few
+hours behind (it refreshes within 4 to 24 hours), so the line says how fresh
+they are. It is looked at every five minutes at most, and only with the
+switch on.
+

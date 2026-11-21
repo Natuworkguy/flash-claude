@@ -1,7 +1,7 @@
 {
   "name": "claude",
   "description": "Anthropic's Claude models, as @claude/<model>",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "providers": [
     {
       "name": "claude",
@@ -19,6 +19,43 @@
       "label": "API key",
       "secret": true,
       "help": "Your key from the Claude Console. Used ahead of ANTHROPIC_API_KEY; left empty, that or ant auth login is used."
+    },
+    {
+      "id": "show_balance",
+      "label": "Show my balance",
+      "type": "switch",
+      "default": false,
+      "help": "While a @claude model is in use, your API balance shows under the message box. Needs an Admin API key."
+    },
+    {
+      "id": "admin_key",
+      "label": "Admin API key",
+      "secret": true,
+      "help": "Only for the balance: Claude Console, Settings, Admin keys. Reads what your organization has spent, nothing else. ANTHROPIC_ADMIN_KEY if empty."
+    },
+    {
+      "id": "balance",
+      "label": "Balance ($)",
+      "type": "number",
+      "default": 0,
+      "min": 0,
+      "max": 1000000,
+      "help": "The credit you had on the day below, so Flash can say what is left. Left at 0, it shows this month's spending instead."
+    },
+    {
+      "id": "balance_date",
+      "label": "Balance as of",
+      "help": "The day that balance was right, like 2026-11-01."
     }
-  ]
+  ],
+  "ui": {
+    "status": {
+      "run": [
+        "python",
+        "./balance.py"
+      ],
+      "every": 300,
+      "when_model": "@claude/"
+    }
+  }
 }
